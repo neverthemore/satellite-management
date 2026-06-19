@@ -1,4 +1,6 @@
 public class ImagingSatellite extends Satellite {
+    private static final double MISSION_ENERGY_COST = 0.08;
+
     private double resolution;
     private int photosTaken;
 
@@ -18,17 +20,21 @@ public class ImagingSatellite extends Satellite {
 
     @Override
     protected void performMission() {
-        if (isActive) {
+        if (state.isActive()) {
             System.out.println(name + ": Съемка территории с разрешением " + resolution + " м/пиксель");
             takePhoto();
-            consumeBattery(0.08);
+
+            energy.consume(MISSION_ENERGY_COST);
+            if (energy.isCritical()) {
+                state.deactivate();
+            }
         } else {
             System.out.println("🛑 " + name + ": Не может выполнить съемку - не активен");
         }
     }
 
     public void takePhoto() {
-        if (isActive) {
+        if (state.isActive()) {
             photosTaken++;
             System.out.println(name + ": Снимок #" + photosTaken + " сделан!");
         }
@@ -40,8 +46,8 @@ public class ImagingSatellite extends Satellite {
                 "resolution=" + resolution +
                 ", photosTaken=" + photosTaken +
                 ", name='" + name + "'" +
-                ", isActive=" + isActive +
-                ", batteryLevel=" + batteryLevel +
+                ", isActive=" + state.isActive() +
+                ", batteryLevel=" + energy.getBatteryLevel() +
                 "}";
     }
 }

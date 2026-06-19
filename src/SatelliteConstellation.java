@@ -1,6 +1,11 @@
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Группировка спутников. Работает только через публичный контракт Satellite —
+ * не знает ничего о EnergySystem/SatelliteState внутри. Благодаря этому
+ * рефакторинг Satellite не потребовал никаких изменений в этом классе (OCP/LSP).
+ */
 public class SatelliteConstellation {
     private String constellationName;
     private List<Satellite> satellites;

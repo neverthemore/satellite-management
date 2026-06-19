@@ -1,4 +1,6 @@
 public class CommunicationSatellite extends Satellite {
+    private static final double MISSION_ENERGY_COST = 0.05;
+
     private double bandWidth;
 
     public CommunicationSatellite(String name, double batteryLevel, double bandWidth) {
@@ -12,15 +14,19 @@ public class CommunicationSatellite extends Satellite {
 
     @Override
     protected void performMission() {
-        if (isActive) {
+        if (state.isActive()) {
             System.out.println(name + ": Передача данных со скоростью " + bandWidth + " Мбит/с");
             sendData(bandWidth);
-            consumeBattery(0.05);
+
+            energy.consume(MISSION_ENERGY_COST);
+            if (energy.isCritical()) {
+                state.deactivate();
+            }
         }
     }
 
     public void sendData(double amount) {
-        if (isActive) {
+        if (state.isActive()) {
             System.out.println(name + ": Отправил " + amount + " Мбит данных!");
         }
     }
@@ -30,8 +36,8 @@ public class CommunicationSatellite extends Satellite {
         return "CommunicationSatellite{" +
                 "bandwidth=" + bandWidth +
                 ", name='" + name + "'" +
-                ", isActive=" + isActive +
-                ", batteryLevel=" + batteryLevel +
+                ", isActive=" + state.isActive() +
+                ", batteryLevel=" + energy.getBatteryLevel() +
                 "}";
     }
 }
