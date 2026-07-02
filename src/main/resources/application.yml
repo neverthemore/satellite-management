@@ -1,0 +1,40 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: satellite-scheduler
+
+app:
+  space-center-service:
+    # В Docker: SERVER_URL=http://server:8080/api (по имени контейнера в Docker-сети)
+    # Локально: http://localhost:8080/api (значение по умолчанию)
+    url: "${SERVER_URL:http://localhost:8080}/api"
+    missions:
+      - targetType: CONSTELLATION
+        constellationName: "GeoStationary"
+        cron: "0 0 */6 * * *"
+
+      - targetType: SINGLE_SATELLITE
+        constellationName: "LowOrbit"
+        satelliteName: "Sat-1"
+        cron: "0 30 8 * * MON"
+
+      - targetType: CONSTELLATION
+        constellationName: "TestConstellation"
+        cron: "0 */1 * * * *"
+
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    consumer:
+      group-id: mission-service
+      auto-offset-reset: earliest
+      key-deserializer:   org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.value.default.type: scheduler.kafka.SatelliteEvent
+    producer:
+      key-serializer:   org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
