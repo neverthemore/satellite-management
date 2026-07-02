@@ -1,17 +1,16 @@
-# 🛰️ Satellite Management System — Семинар 6 (Strategy + доработка Factory Method)
+# 🛰️ Satellite Management System — Семинар 7 (Facade + Decorator/AOP)
 
-Единая точка создания спутников через `SatelliteService`, который сам выбирает нужную фабрику среди всех зарегистрированных (паттерн **Strategy**), плюс унификация `SatelliteFactory` через иерархию параметров (паттерн **Command**).
+Сервисный слой упрощён через **Facade**, а замер времени выполнения методов реализован через **Decorator** в виде Spring AOP прокси (кастомная аннотация + аспект).
 
 ---
 
-## 📋 Что изменилось по сравнению с семинаром 5
+## 📋 Что изменилось по сравнению с семинаром 6
 
 | Было | Стало |
 |---|---|
-| `SatelliteFactory` — абстрактный класс с `createSatellite(name, batteryLevel)` и `createSatelliteWithParameter(name, batteryLevel, parameter)` | `SatelliteFactory` — **интерфейс** с единственным методом `createSatelliteWithParameter(SatelliteParam param)` + `isSatelliteTypeSupported(SatelliteType)` |
-| `Main`/тесты напрямую вызывали конкретные фабрики | Всё создание идёт через `SatelliteService.createSatellite(param)` — сервис сам находит подходящую фабрику |
-| Параметры передавались как примитивы (`String, double, double`) | Введена иерархия `SatelliteParam` → `ImagingSatelliteParam` / `CommunicationSatelliteParam` |
-| — | Новое исключение `SpaceOperationException` — для неподдерживаемого типа параметра и для "фабрика не найдена" |
+| `SpaceOperationCenterService` (в `seminars.service`) работал только с группировками | Переименован в `ConstellationService`, плюс 3 новых метода (`existsConstellation`, `getConstellation`, `deactivateAllSatellites`) |
+| Вызывающий код сам дёргал `ConstellationService` и `SatelliteService` в правильном порядке | Новый `SpaceOperationCenterService` (теперь в `seminars.facade`) — **фасад**, агрегирующий оба сервиса |
+| — | `@LogExecutionTime` + `ExecutionTimeAspect` — кастомный декоратор через Spring AOP прокси, замеряет время выполнения методов |
 
 ---
 
@@ -20,84 +19,112 @@
 ```
 satellite-spring/
 └── src/main/java/seminars/
-    ├── Main.java                              # создаёт спутники только через SatelliteService
-    ├── exception/
-    │   └── SpaceOperationException.java       # НОВЫЙ
-    ├── factory/
-    │   ├── SatelliteType.java                 # НОВЫЙ: enum IMAGE / COMMUNICATION
-    │   ├── SatelliteParam.java                # НОВЫЙ: абстрактный параметр (Command)
-    │   ├── ImagingSatelliteParam.java         # НОВЫЙ
-    │   ├── CommunicationSatelliteParam.java   # НОВЫЙ
-    │   ├── SatelliteFactory.java              # ПЕРЕРАБОТАН: теперь interface
-    │   ├── CommunicationSatelliteFactory.java # ПЕРЕРАБОТАН: instanceof + исключение
-    │   └── ImagingSatelliteFactory.java       # ПЕРЕРАБОТАН: instanceof + исключение
-    ├── domain/  (без изменений)
-    ├── repository/ConstellationRepository.java  (без изменений)
-    └── service/
-        ├── SatelliteService.java              # НОВЫЙ: интерфейс
-        ├── SatelliteServiceImpl.java          # НОВЫЙ: Strategy — список фабрик, выбор по типу
-        └── SpaceOperationCenterService.java    (без изменений)
-└── src/test/java/seminars/
-    ├── factory/SatelliteFactoryTest.java       # ПЕРЕПИСАН под SatelliteParam
+    ├── Main.java                         # теперь работает в основном через фасад
+    ├── aop/                              # НОВЫЙ пакет
+    │   ├── LogExecutionTime.java         # кастомная аннотация (@Retention RUNTIME)
+    │   └── ExecutionTimeAspect.java      # @Aspect, @Around — сам декоратор
+    ├── facade/                           # НОВЫЙ пакет
+    │   ├── SpaceOperationCenterService.java   # ФАСАД
+    │   ├── AddSatelliteRequest.java
+    │   ├── MissionRequest.java
+    │   └── ConstellationStatusReport.java
     ├── service/
-    │   ├── SatelliteServiceTest.java          # НОВЫЙ (обязательный): @SpringBootTest
-    │   └── SatelliteServiceImplTest.java      # НОВЫЙ (доп.): юнит-тест, граничные случаи
-    ├── domain/EnergySystemTest.java            (без изменений)
-    └── repository/
-        ├── ConstellationRepositoryUnitTest.java          (без изменений)
-        ├── ConstellationRepositoryMockTest.java           # спутники теперь через SatelliteParam
-        └── ConstellationRepositoryIntegrationTest.java    # @Autowired SatelliteService вместо фабрик
+    │   ├── ConstellationService.java     # ПЕРЕИМЕНОВАН из SpaceOperationCenterService
+    │   ├── SatelliteService.java
+    │   └── SatelliteServiceImpl.java     # + @LogExecutionTime на createSatellite()
+    ├── domain/, factory/, exception/, repository/   (без изменений)
+└── src/test/java/seminars/
+    ├── facade/SpaceOperationCenterServiceTest.java   # НОВЫЙ
+    ├── aop/ExecutionTimeAspectTest.java               # НОВЫЙ
+    ├── repository/ConstellationRepositoryMockTest.java        # обновлён под ConstellationService
+    ├── repository/ConstellationRepositoryIntegrationTest.java # обновлён под ConstellationService
+    └── ... (остальные без изменений)
 ```
 
 ---
 
-## 🧩 Как это работает
+## 🎭 Facade
 
-```java
-// Вызывающему коду не нужно знать, какая фабрика будет использована
-Satellite satellite = satelliteService.createSatellite(
-        new CommunicationSatelliteParam("Связь-1", 0.85, 500.0));
-```
-
-**`SatelliteServiceImpl`** (Strategy):
 ```java
 @Service
 @RequiredArgsConstructor
-public class SatelliteServiceImpl implements SatelliteService {
-    private final List<SatelliteFactory> factories;   // Spring сам соберёт все @Component-фабрики
+public class SpaceOperationCenterService {
+    private final ConstellationService constellationService;
+    private final SatelliteService satelliteService;
 
-    public Satellite createSatellite(SatelliteParam param) {
-        SatelliteFactory factory = factories.stream()
-                .filter(f -> f.isSatelliteTypeSupported(param.getType()))
-                .findFirst()
-                .orElseThrow(() -> new SpaceOperationException(...));
-        return factory.createSatelliteWithParameter(param);
-    }
+    public List<Satellite> addSatellite(AddSatelliteRequest request) { ... }
+    public void executeMission(MissionRequest request) { ... }
+    public List<Satellite> deployConstellation(AddSatelliteRequest request) { ... }   // доп. метод
+    public ConstellationStatusReport getConstellationReport(String name) { ... }       // доп. метод
 }
 ```
 
-Список `factories` — это и есть набор взаимозаменяемых "стратегий" создания. Чтобы добавить новый тип спутника, достаточно создать новый `SatelliteParam`-наследник и новую `@Component`-фабрику — `SatelliteServiceImpl` трогать не нужно (OCP).
-
-**Конкретная фабрика** проверяет тип параметра через `instanceof` и кидает `SpaceOperationException`, если её попросили создать не "свой" тип:
+**До фасада** (то, что раньше требовалось от вызывающего кода):
 ```java
-@Override
-public Satellite createSatelliteWithParameter(SatelliteParam param) {
-    if (!(param instanceof CommunicationSatelliteParam communicationParam)) {
-        throw new SpaceOperationException(...);
+if (!constellationService.existsConstellation(name)) {
+    constellationService.createAndSaveConstellation(name);
+}
+Satellite s1 = satelliteService.createSatellite(param1);
+constellationService.addSatelliteToConstellation(name, s1);
+Satellite s2 = satelliteService.createSatellite(param2);
+constellationService.addSatelliteToConstellation(name, s2);
+constellationService.activateAllSatellites(name);
+constellationService.executeConstellationMission(name);
+```
+
+**После фасада:**
+```java
+operationCenter.deployConstellation(AddSatelliteRequest.builder()
+        .constellationName(name)
+        .satelliteParam(param1)
+        .satelliteParam(param2)
+        .build());
+```
+
+`AddSatelliteRequest` переиспользует иерархию `SatelliteParam` из семинара 6 (как и предлагалось в задании), `@Singular` от Lombok даёt две формы сборки списка: по одному элементу (`.satelliteParam(x)`) или сразу списком (`.satelliteParams(list)`).
+
+Помимо двух обязательных методов (`addSatellite`, `executeMission`) добавлены два своих:
+- **`deployConstellation`** — полный цикл (создание → активация → выполнение миссий) одним вызовом
+- **`getConstellationReport`** — сводка по группировке (всего/активных спутников) без необходимости вызывающему коду самому считать активные спутники
+
+---
+
+## ⏱ Decorator через Spring AOP
+
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface LogExecutionTime { }
+```
+
+```java
+@Aspect
+@Component
+public class ExecutionTimeAspect {
+    @Around("@annotation(seminars.aop.LogExecutionTime)")
+    public Object measureExecutionTime(ProceedingJoinPoint joinPoint) throws Throwable {
+        long startNanos = System.nanoTime();
+        try {
+            return joinPoint.proceed();
+        } finally {
+            long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+            System.out.println("⏱ " + joinPoint.getSignature().toShortString() + " выполнен за " + elapsedMillis + " мс");
+        }
     }
-    return new CommunicationSatellite(
-            communicationParam.getName(), communicationParam.getBatteryLevel(), communicationParam.getBandwidth());
 }
 ```
+
+Аннотация навешана на `SatelliteServiceImpl.createSatellite()`, `ConstellationService.executeConstellationMission()`, `SpaceOperationCenterService.addSatellite()` и `executeMission()` — то есть видна работа аспекта и на уровне фасада, и на уровне нижних сервисов.
+
+**Важный нюанс (self-invocation):** Spring AOP — proxy-based, перехватываются только вызовы СНАРУЖИ бина. `deployConstellation()` вызывает `this.addSatellite(...)` и `this.executeMission(...)` напрямую (через `this`, в обход прокси) — для ЭТИХ конкретных вложенных вызовов аспект не сработает, хотя сам внешний `deployConstellation()` остаётся неаннотированным. Зато `addSatellite()` корректно перехватывается, когда `Main` зовёт его напрямую, и `satelliteService.createSatellite(...)`, вызванный ИЗ фасада — это уже вызов на ДРУГОЙ бин, такой вызов проходит через прокси `SatelliteServiceImpl` без проблем. Это одна из самых частых AOP-ловушек в проде, полезно знать о ней заранее.
 
 ---
 
 ## 🧪 Тесты
 
-- **`SatelliteFactoryTest`** — переписан: создание через `SatelliteParam`, плюс новые сценарии — `isSatelliteTypeSupported()` для обоих типов и `SpaceOperationException` при параметре чужого типа. Тесты на "дефолтные" параметры удалены — такого сценария в новом API больше не существует.
-- **`SatelliteServiceTest`** *(обязательный по заданию)* — `@SpringBootTest`, создаёт спутники через реально внедрённый `SatelliteService`, проверяет тип и характеристики результата.
-- **`SatelliteServiceImplTest`** *(дополнительно)* — юнит-тест с вручную собранным списком фабрик: проверяет граничные случаи "подходящей фабрики нет" и "список фабрик пуст" — такое невозможно воспроизвести в реальном Spring-контексте, где обе фабрики всегда зарегистрированы.
-- `ConstellationRepositoryMockTest` / `ConstellationRepositoryIntegrationTest` обновлены под новый API создания спутников.
+- **`SpaceOperationCenterServiceTest`** — 6 интеграционных тестов фасада: создание+добавление, переиспользование существующей группировки, `executeMission` с активацией по умолчанию, полный `deployConstellation`, отчёт до/после активации, исключение для неизвестной группировки
+- **`ExecutionTimeAspectTest`** — перехватывает `System.out`, проверяет, что вызов аннотированного метода реально печатает строку с замером, что замер не дублируется, и что неаннотированный вызов (`toString()`) ничего не печатает
+- `ConstellationRepositoryMockTest`/`ConstellationRepositoryIntegrationTest` обновлены под новое имя `ConstellationService`
 
 ---
 
@@ -108,7 +135,7 @@ public Satellite createSatelliteWithParameter(SatelliteParam param) {
 ./gradlew test jacocoTestReport
 ```
 
-Как и раньше: вся новая логика (фабрики, сервис, параметры) проверена вручную через «развёрнутый» эквивалент кода на `javac` — 17/17 сценариев прошли, включая happy path обеих фабрик, обе ветки `SpaceOperationException`, выбор стратегии в сервисе и оба граничных случая (фабрика не найдена / список фабрик пуст). Реальный Gradle-билд с Lombok/JUnit/Mockito/Spring не прогонялся вживую (нет доступа к Maven Central в этой среде) — обязательно прогони `./gradlew test` сам перед сдачей.
+Как и раньше: вся бизнес-логика фасада проверена вручную через эквивалентный код на `javac` — 14/14 сценариев прошли (оркестрация фасада + отдельно логика измерения времени, включая поведение при исключении). Сам Spring AOP прокси (перехват аннотации, создание CGLIB-обёртки) проверить так нельзя — для этого нужен реальный Spring-контекст, недоступный в этой песочнице (нет доступа к Maven Central). Обязательно прогони `./gradlew test` сам — `ExecutionTimeAspectTest` как раз и существует, чтобы подтвердить, что аспект реально перехватывает вызовы в живом контексте.
 
 ---
 
@@ -116,5 +143,6 @@ public Satellite createSatelliteWithParameter(SatelliteParam param) {
 
 ![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen?logo=springboot)
+![Spring AOP](https://img.shields.io/badge/Spring%20AOP-enabled-blue)
 ![Lombok](https://img.shields.io/badge/Lombok-enabled-red)
-![GoF](https://img.shields.io/badge/patterns-Factory%20Method%20%2B%20Strategy%20%2B%20Command-blueviolet)
+![GoF](https://img.shields.io/badge/patterns-Facade%20%2B%20Decorator-blueviolet)
