@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/satellite-management.iml" filepath="$PROJECT_DIR$/satellite-management.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/satellite-management-system.main.iml" filepath="$PROJECT_DIR$/.idea/modules/satellite-management-system.main.iml" />
     </modules>
   </component>
 </project>

@@ -1,0 +1,56 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: satellite-management-system
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/satellite_db}
+    username: ${SPRING_DATASOURCE_USERNAME:satellite_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:1}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        default_batch_fetch_size: 20
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    producer:
+      key-serializer:   org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        # Не добавляем заголовок с Java-классом — консьюмеры из других пакетов
+        # десериализуют в свои локальные record'ы без настройки type-mapping
+        spring.json.add.type.headers: "false"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+grpc:
+  client:
+    telemetry-service:
+      address: "static://${TELEMETRY_SERVICE_HOST:localhost}:${TELEMETRY_GRPC_PORT:9091}"
+      negotiation-type: plaintext
+
+telemetry:
+  client:
+    enabled: true

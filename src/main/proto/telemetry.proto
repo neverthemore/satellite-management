@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+// Пакет и Java-опции — задают имена пакетов для сгенерированного кода
+package telemetry;
+
+option java_package = "telemetry.grpc";
+option java_multiple_files = true;   // каждый message — отдельный .java файл
+
+/**
+ * Сервис телеметрии спутников.
+ *
+ * Server Streaming RPC: клиент (satellite-spring) делает ОДИН запрос,
+ * сервер (satellite-telemetry) непрерывно шлёт поток обновлений
+ * до тех пор, пока клиент не закроет соединение или сервер не завершит поток.
+ *
+ * Альтернативы (для расширения):
+ *   Unary:               client → 1 req → 1 resp
+ *   Client Streaming:    client → stream req → 1 resp
+ *   Bidirectional:       client → stream req ↔ stream resp   ← доп. задание
+ */
+service TelemetryService {
+  rpc StreamTelemetry(TelemetryRequest) returns (stream TelemetryUpdate);
+}
+
+/** Запрос: какие спутники нас интересуют. */
+message TelemetryRequest {
+  // Если пусто — шлём телеметрию по умолчанию (все известные спутники)
+  repeated string satellite_names = 1;
+  // Имя группировки (необязательно — для фильтрации в будущем)
+  string constellation_name = 2;
+}
+
+/** Обновление телеметрии для одного спутника. */
+message TelemetryUpdate {
+  string satellite_name = 1;
+
+  // Внутренняя температура отсеков (норма: 15–35 °C)
+  double internal_temperature = 2;
+
+  // Внешняя температура корпуса (орбита: -150 до +120 °C)
+  double external_temperature = 3;
+
+  // Уровень заряда батареи (0.0–1.0)
+  double battery_level = 4;
+
+  bool is_active = 5;
+
+  // Unix-время в миллисекундах
+  int64 timestamp_millis = 6;
+}

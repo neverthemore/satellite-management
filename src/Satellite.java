@@ -1,7 +1,22 @@
+package seminars.domain;
+
+import jakarta.persistence.*;
+
+@Entity
+@Inheritance(strategy = InheritanceType.SINGLE_TABLE)   // если есть наследники
 public abstract class Satellite {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
     protected String name;
     protected boolean isActive;
     protected double batteryLevel;
+
+    // Пустой конструктор (обязателен для JPA)
+    protected Satellite() {
+    }
 
     public Satellite(String name, double batteryLevel) {
         this.name = name;
@@ -33,15 +48,12 @@ public abstract class Satellite {
 
     protected abstract void performMission();
 
-    public String getName() {
-        return name;
-    }
+    // Геттеры
+    public String getName() { return name; }
+    public boolean isActive() { return isActive; }
+    public double getBatteryLevel() { return batteryLevel; }
+    public Long getId() { return id; }
 
-    public boolean isActive() {
-        return isActive;
-    }
-
-    public double getBatteryLevel() {
-        return batteryLevel;
-    }
+    // Сеттер для id (нужен Hibernate)
+    public void setId(Long id) { this.id = id; }
 }
