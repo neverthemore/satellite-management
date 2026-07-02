@@ -62,13 +62,13 @@ class SatelliteRepositoryTest {
     }
 
     @Test
-    @DisplayName("findByActiveTrue() после activate() возвращает только активные спутники")
+    @DisplayName("findByIsActiveTrue() после activate() возвращает только активные спутники")
     void findByIsActiveTrue_afterActivation_returnsOnlyActiveSatellites() {
         Satellite sat = satelliteRepository.findByName(COMM_SAT_NAME).orElseThrow();
         sat.activate();
         satelliteRepository.save(sat);
 
-        List<Satellite> active = satelliteRepository.findByActiveTrue();
+        List<Satellite> active = satelliteRepository.findByIsActiveTrue();
         assertEquals(1, active.size());
         assertEquals(COMM_SAT_NAME, active.get(0).getName());
     }

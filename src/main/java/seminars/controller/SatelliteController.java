@@ -51,7 +51,7 @@ public class SatelliteController {
     @GetMapping("/active")
     @Operation(summary = "Получить все активные спутники")
     public ResponseEntity<List<Satellite>> getActive() {
-        return ResponseEntity.ok(satelliteRepository.findByActiveTrue());
+        return ResponseEntity.ok(satelliteRepository.findByIsActiveTrue());
     }
 
     @GetMapping("/by-constellation")
