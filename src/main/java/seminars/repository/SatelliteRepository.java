@@ -20,5 +20,5 @@ public interface SatelliteRepository extends JpaRepository<Satellite, Long> {
 
     boolean existsByName(String name);
 
-    List<Satellite> findByActiveTrue();
+    List<Satellite> findByIsActiveTrue();
 }

@@ -8,7 +8,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/satellite_db}
     username: ${SPRING_DATASOURCE_USERNAME:satellite_user}
-    password: ${SPRING_DATASOURCE_PASSWORD:1}
+    password: ${SPRING_DATASOURCE_PASSWORD:satellite_pass}
     driver-class-name: org.postgresql.Driver
 
   jpa:
