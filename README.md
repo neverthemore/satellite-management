@@ -1,120 +1,172 @@
-# 🛰️ Satellite System — Docker Deployment
+# 🛰️ Satellite Management System — Семинар 9.2 (JPA + PostgreSQL)
 
-Два Spring Boot сервиса в Docker, оркестрированных через Docker Compose.
-
-## 📁 Структура репозитория
-
-```
-/
-├── satellite-spring/          # Основной сервис (порт 8080)
-│   ├── src/
-│   ├── build.gradle.kts
-│   ├── Dockerfile             ← многостадийная сборка
-│   └── .dockerignore
-│
-├── satellite-scheduler/       # Планировщик миссий (порт 8081)
-│   ├── src/
-│   ├── build.gradle.kts
-│   ├── Dockerfile
-│   └── .dockerignore
-│
-├── docker-compose.yml         ← оркестрация обоих сервисов
-└── .github/workflows/
-    └── ci-cd.yml              ← GitHub Actions (тесты → SAST → Docker push → DAST)
-```
-
-> ⚠️ `docker-compose.yml` должен лежать в корне репозитория рядом с папками `satellite-spring/` и `satellite-scheduler/`.
+Добавлена поддержка PostgreSQL через Spring Data JPA и Flyway. Данные сохраняются между перезапусками.
 
 ---
 
-## 🚀 Быстрый старт
+## 📋 Что изменилось
 
-```bash
-# Собрать образы и запустить оба контейнера
-docker compose up --build
-
-# В фоне:
-docker compose up --build -d
-
-# Остановить и удалить контейнеры:
-docker compose down
-```
-
-После старта:
-
-| Сервис | URL |
+| Было | Стало |
 |---|---|
-| Swagger UI | http://localhost:8080/swagger-ui.html |
-| Healthcheck | http://localhost:8080/actuator/health |
-| Планировщик | http://localhost:8081 |
+| `ConstellationRepository` — `HashMap<String, SatelliteConstellation>` | **Удалён**, заменён на `SatelliteConstellationRepository extends JpaRepository` |
+| Данные в памяти — теряются при рестарте | Данные в PostgreSQL — переживают рестарты |
+| Доменные классы — чистые Java-объекты | Доменные классы — JPA-сущности с аннотациями |
 
 ---
 
-## 🔍 Как проверить, что всё работает
+## 🗂️ Изменённые / добавленные файлы
 
+```
+build.gradle.kts           ← + jpa, postgresql, flyway, h2 (test)
+application.yaml           ← + datasource, jpa, flyway config (env-vars)
+src/main/resources/db/migration/
+  V1__init_schema.sql      ← НОВЫЙ: Flyway-миграция, 3NF-схема, индексы
+
+domain/
+  EnergySystem.java        ← @Embeddable + protected no-arg ctor для JPA
+  SatelliteState.java      ← @Embeddable + protected no-arg ctor
+  Satellite.java           ← @Entity @Inheritance(JOINED) @DiscriminatorColumn
+  CommunicationSatellite.java ← @Entity @Table @DiscriminatorValue("COMMUNICATION")
+  ImagingSatellite.java    ← @Entity @Table @DiscriminatorValue("IMAGE")
+  SatelliteConstellation.java ← @Entity @OneToMany(cascade=ALL) @JsonManagedReference
+
+repository/
+  ConstellationRepository.java ← УДАЛЁН (HashMap)
+  SatelliteConstellationRepository.java ← НОВЫЙ: JpaRepository + findByConstellationNameWithSatellites
+  SatelliteRepository.java ← НОВЫЙ: JpaRepository + findByIsActiveTrue
+
+service/ConstellationService.java  ← @Transactional, использует JPA-репозитории
+controller/
+  ConstellationController.java ← НОВЫЙ: CRUD для группировок
+  SatelliteController.java     ← НОВЫЙ: CRUD для спутников
+Main.java  ← использует SatelliteConstellationRepository
+
+test/resources/application-test.yaml ← НОВЫЙ: H2 + flyway=false для тестов
+test/repository/
+  SatelliteConstellationRepositoryTest.java ← НОВЫЙ: @DataJpaTest + H2
+  SatelliteRepositoryTest.java              ← НОВЫЙ: @DataJpaTest + H2
+  ConstellationRepositoryMockTest.java      ← переписан под JPA-моки
+  ConstellationRepositoryIntegrationTest.java ← переписан с @ActiveProfiles("test")
+```
+
+---
+
+## 🏗️ Схема БД (3NF, Flyway V1)
+
+```
+satellite_constellations (id PK, constellation_name UNIQUE)
+         ↑ FK (constellation_id)
+satellites (id PK, name, satellite_type, is_active, status_message,
+            battery_level, max_battery, min_battery, low_battery_threshold)
+         ↑ FK (id)                    ↑ FK (id)
+communication_satellites(bandwidth)   imaging_satellites(resolution, photos_taken)
+
+Индексы:
+  idx_constellation_name   — уникальный, поиск по имени (частый, редко меняется)
+  idx_satellite_is_active  — фильтр активных спутников
+  idx_satellite_constellation — JOIN satellites → constellation
+```
+
+---
+
+## ❓ Ответ: @Embedded vs @OneToOne
+
+**`@Embedded` (`EnergySystem`, `SatelliteState`)**:
+- Не существуют без спутника → нет смысла хранить отдельно
+- Нет потребности в прямом API-доступе (нет `/api/energy-systems`)
+- Поля функционально зависят только от PK спутника → 3NF не нарушается при включении в ту же таблицу
+- Меньше JOIN-ов при чтении → лучше производительность
+
+**`@OneToOne` было бы уместно, если бы**:
+- Объект имел отдельный жизненный цикл (можно создать без спутника)
+- Требовался прямой репозиторий / API-доступ
+- Таблица `satellites` стала слишком широкой из-за embedded-полей
+- Объект разделялся между несколькими спутниками (`@ManyToOne`)
+
+---
+
+## ⚡ Ключевые технические детали
+
+### JPA Inheritance: JOINED
+```java
+@Entity
+@Table(name = "satellites")
+@Inheritance(strategy = InheritanceType.JOINED)
+@DiscriminatorColumn(name = "satellite_type")
+public abstract class Satellite { ... }
+
+@Entity @Table(name = "communication_satellites")
+@DiscriminatorValue("COMMUNICATION")
+public class CommunicationSatellite extends Satellite { ... }
+```
+
+### Bidirectional @OneToMany — управление обеими сторонами
+```java
+// В SatelliteConstellation.addSatellite():
+satellites.add(satellite);
+satellite.setConstellation(this);  // ОБЯЗАТЕЛЬНО для FK constellation_id
+```
+Без `setConstellation(this)` Hibernate не запишет FK и спутник останется без группировки.
+
+### @Transactional + dirty checking
+```java
+@Transactional
+public void activateAllSatellites(String name) {
+    SatelliteConstellation c = getConstellationOrThrow(name);
+    for (Satellite s : c.getSatellites()) s.activate();
+    // Hibernate автоматически сохранит is_active при закрытии транзакции
+}
+```
+
+### N+1 проблема и JOIN FETCH
+```java
+@Query("SELECT c FROM SatelliteConstellation c LEFT JOIN FETCH c.satellites WHERE c.constellationName = :name")
+Optional<SatelliteConstellation> findByConstellationNameWithSatellites(String name);
+```
+Без `JOIN FETCH` доступ к `constellation.getSatellites()` с `FetchType.LAZY` вне транзакции → `LazyInitializationException`.
+
+---
+
+## 🧪 Стратегия тестирования
+
+| Тест | Аннотация | БД |
+|---|---|---|
+| `SatelliteConstellationRepositoryTest` | `@DataJpaTest` | H2 auto |
+| `SatelliteRepositoryTest` | `@DataJpaTest` | H2 auto |
+| `ConstellationRepositoryMockTest` | `@ExtendWith(Mockito)` | нет |
+| `ConstellationRepositoryIntegrationTest` | `@SpringBootTest @ActiveProfiles("test")` | H2 |
+| Все остальные `@SpringBootTest` | `@ActiveProfiles("test")` | H2 |
+
+Для production-близких тестов — используй **Testcontainers** с реальным PostgreSQL.
+
+---
+
+## 🚀 Запуск
+
+### Локально (PostgreSQL через Docker)
 ```bash
-# Статус контейнеров (server должен быть healthy)
-docker compose ps
+# Только база данных:
+docker compose up postgres -d
 
-# Логи обоих сервисов в реальном времени
-docker compose logs -f
+# Приложение (Flyway создаст схему при первом запуске):
+cd satellite-spring && ./gradlew bootRun
+```
 
-# Логи только планировщика
-docker compose logs -f mission-service
+### Полный стек в Docker
+```bash
+docker compose up --build
+```
 
-# Отправить тестовый запрос через curl
-curl -X GET http://localhost:8080/api/overview
-
-# Или через Postman / Swagger UI
+### Тесты (H2, без PostgreSQL)
+```bash
+cd satellite-spring && ./gradlew test jacocoTestReport
 ```
 
 ---
 
-## 🌐 Переменные окружения
+## 📚 Технологии
 
-| Переменная | Сервис | Описание | Значение по умолчанию |
-|---|---|---|---|
-| `SERVER_PORT` | оба | Порт, на котором слушает сервис | `8080` / `8081` |
-| `SERVER_URL` | scheduler | Базовый URL основного сервиса | `http://localhost:8080` |
-
-В Docker-сети сервисы находятся в одной сети `satellite-net` и доступны по имени сервиса (`server`), а не по `localhost`. Именно поэтому планировщик получает `SERVER_URL=http://server:8080`.
-
----
-
-## 🏗️ Многостадийная сборка
-
-```
-Stage 1 (build): gradle:8.12-jdk21
-  └── ./gradlew bootJar -x test
-      └── build/libs/*.jar
-
-Stage 2 (run): eclipse-temurin:21-jre-alpine
-  └── COPY app.jar
-      └── java -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -jar app.jar
-```
-
-Финальный образ содержит только JRE (без JDK, Gradle, исходников) → меньший размер и меньшая поверхность атаки.
-
----
-
-## 🔒 Безопасность
-
-- Контейнеры запускаются от непривилегированного пользователя `appuser` (не `root`)
-- Actuator открывает только `/actuator/health` (остальные эндпоинты закрыты)
-- CI/CD включает: CodeQL (SAST) + Trivy (DAST — сканирование образов)
-
----
-
-## ⚙️ CI/CD (GitHub Actions)
-
-Пайплайн (`.github/workflows/ci-cd.yml`) при пуше в `main`:
-
-1. Тесты `satellite-spring` (`./gradlew test`)
-2. Тесты `satellite-scheduler` (`./gradlew test`)
-3. SAST — CodeQL анализ Java-кода
-4. Docker build + push в GitHub Container Registry (GHCR)
-   - Теги: `latest` + короткий SHA коммита
-5. DAST — Trivy сканирование опубликованных образов
-
-Образы хранятся в GHCR (`ghcr.io/<ваш-username>/satellite-spring:latest`).
-`GITHUB_TOKEN` создаётся автоматически — дополнительных секретов не нужно.
+![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-enabled-green)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)
+![Flyway](https://img.shields.io/badge/Flyway-migrations-red)
+![H2](https://img.shields.io/badge/H2-test--only-orange)

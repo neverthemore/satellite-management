@@ -1,1 +1,1 @@
-rootProject.name = "satellite-scheduler"
+rootProject.name = "satellite-management-system"

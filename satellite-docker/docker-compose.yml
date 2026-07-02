@@ -1,0 +1,148 @@
+# Запуск:  docker compose up --build
+# Стоп:    docker compose down -v
+# Логи:    docker compose logs -f kafka
+# Swagger: http://localhost:8080/swagger-ui.html
+# Kafka:   localhost:9094 (внешний) / kafka:9092 (внутри Docker-сети)
+
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB:       satellite_db
+      POSTGRES_USER:     satellite_user
+      POSTGRES_PASSWORD: satellite_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - satellite-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U satellite_user -d satellite_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Kafka (KRaft — без Zookeeper) ────────────────────
+  # KRaft — встроенный Raft-консенсус, доступен с Kafka 3.3+.
+  # Убирает Zookeeper: один контейнер вместо двух, быстрее стартует.
+  #
+  # Два listener-адреса:
+  #   PLAINTEXT://kafka:9092   — для сервисов внутри Docker-сети
+  #   EXTERNAL://localhost:9094 — для доступа с хоста (grpc, kafka-ui и т.п.)
+  kafka:
+    image: bitnami/kafka:3.7.0
+    container_name: kafka
+    environment:
+      KAFKA_CFG_NODE_ID: 0
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Автоматически создаём топики при первом обращении (development only!)
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9094:9094"
+    volumes:
+      - kafka_data:/bitnami/kafka
+    networks:
+      - satellite-net
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Сервис телеметрии (gRPC) ─────────────────────────
+  telemetry-service:
+    build:
+      context: ./satellite-telemetry
+      dockerfile: Dockerfile
+    image: satellite-telemetry:1.0.0
+    container_name: telemetry-service
+    environment:
+      GRPC_PORT: "9091"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "9091:9091"
+    networks:
+      - satellite-net
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9091 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Основной сервис ──────────────────────────────────
+  server:
+    build:
+      context: ./satellite-spring
+      dockerfile: Dockerfile
+    image: satellite-spring:1.0.0
+    container_name: server
+    environment:
+      SERVER_PORT: "8080"
+      SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/satellite_db
+      SPRING_DATASOURCE_USERNAME: satellite_user
+      SPRING_DATASOURCE_PASSWORD: satellite_pass
+      TELEMETRY_SERVICE_HOST:     telemetry-service
+      TELEMETRY_GRPC_PORT:        "9091"
+      KAFKA_BOOTSTRAP_SERVERS:    kafka:9092
+    ports:
+      - "8080:8080"
+    networks:
+      - satellite-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      telemetry-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider",
+             "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 50s
+
+  # ── Планировщик миссий ───────────────────────────────
+  mission-service:
+    build:
+      context: ./satellite-scheduler
+      dockerfile: Dockerfile
+    image: satellite-scheduler:1.0.0
+    container_name: mission-service
+    environment:
+      SERVER_PORT:             "8081"
+      SERVER_URL:              http://server:8080
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "8081:8081"
+    networks:
+      - satellite-net
+    depends_on:
+      server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+networks:
+  satellite-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  kafka_data:
