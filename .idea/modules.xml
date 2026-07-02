@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/satellite-management-system.main.iml" filepath="$PROJECT_DIR$/.idea/modules/satellite-management-system.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/seminars.satellite-management-system.main.iml" filepath="$PROJECT_DIR$/.idea/modules/seminars.satellite-management-system.main.iml" />
     </modules>
   </component>
 </project>

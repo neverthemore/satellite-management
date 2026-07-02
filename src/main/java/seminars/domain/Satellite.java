@@ -89,7 +89,12 @@ public abstract class Satellite {
     protected Satellite(String name, double batteryLevel) {
         this.name = name;
         this.state = new SatelliteState();
-        this.energy = EnergySystem.builder().batteryLevel(batteryLevel).build();
+        this.energy = EnergySystem.builder()
+                .batteryLevel(batteryLevel)
+                .maxBattery(EnergySystem.DEFAULT_MAX_BATTERY)
+                .minBattery(EnergySystem.DEFAULT_MIN_BATTERY)
+                .lowBatteryThreshold(EnergySystem.DEFAULT_LOW_BATTERY_THRESHOLD)
+                .build();
         System.out.println("Создан спутник: " + name + " (" + batteryLevel + ")");
     }
 

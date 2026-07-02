@@ -7,10 +7,6 @@ import seminars.domain.Satellite;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * JPA-репозиторий для отдельного доступа к спутникам.
- * Позволяет искать/удалять спутник без загрузки группировки целиком.
- */
 @Repository
 public interface SatelliteRepository extends JpaRepository<Satellite, Long> {
 
@@ -20,5 +16,5 @@ public interface SatelliteRepository extends JpaRepository<Satellite, Long> {
 
     boolean existsByName(String name);
 
-    List<Satellite> findByIsActiveTrue();
+    List<Satellite> findByStateActiveTrue();
 }

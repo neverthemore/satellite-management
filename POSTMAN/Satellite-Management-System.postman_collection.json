@@ -1,0 +1,1133 @@
+{
+  "info": {
+    "_postman_id": "5018b237-3a16-41d8-abb1-84dbe0248614",
+    "name": "Satellite Management System API",
+    "description": "Коллекция запросов для тестирования Satellite Management System (Spring Boot).\n\nСформирована на основе OpenAPI-спецификации проекта (openapi.yaml).\n\nСтруктура:\n- Constellations CRUD - создание/чтение/удаление группировок\n- Satellites CRUD - чтение спутников\n- Space Operation Center - добавление спутников, выполнение миссий, деплой, сводки, деактивация\n- Telemetry - данные телеметрии (из gRPC-стрима)\n\nПеременные окружения: baseUrl, constellationName, commSatName, imgSatName, satelliteId.\nВ Tests-скриптах используются переменные коллекции для передачи id/имён между запросами (chaining).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Constellations CRUD",
+      "description": "Прямое управление группировками (ConstellationController)",
+      "item": [
+        {
+          "name": "Создать группировку",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations?name={{constellationName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{constellationName}}"
+                }
+              ]
+            },
+            "description": "Создаёт новую группировку. Имя берётся из переменной коллекции constellationName."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Тело ответа содержит правильное имя группировки', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.constellationName).to.eql(pm.collectionVariables.get('constellationName'));",
+                  "    pm.expect(json).to.have.property('id');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('createdConstellationId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Создать группировку повторно (ожидаем 422)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations?name={{constellationName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{constellationName}}"
+                }
+              ]
+            },
+            "description": "Повторное создание группировки с тем же именем должно вернуть 422 (SpaceOperationException)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 422 Unprocessable Entity', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('Тело ответа содержит структуру ошибки', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('error');",
+                  "    pm.expect(json).to.have.property('message');",
+                  "    pm.expect(json).to.have.property('timestamp');",
+                  "    pm.expect(json.message).to.include('уже существует');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить все группировки",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations"
+              ]
+            },
+            "description": "Возвращает список всех группировок."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Ответ - массив', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Созданная ранее группировка присутствует в списке', function () {",
+                  "    const json = pm.response.json();",
+                  "    const names = json.map(c => c.constellationName);",
+                  "    pm.expect(names).to.include(pm.collectionVariables.get('constellationName'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить группировку по имени",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations/{{constellationName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations",
+                "{{constellationName}}"
+              ]
+            },
+            "description": "Возвращает группировку вместе со списком её спутников."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Имя группировки совпадает', function () {",
+                  "    pm.expect(pm.response.json().constellationName).to.eql(pm.collectionVariables.get('constellationName'));",
+                  "});",
+                  "",
+                  "pm.test('Поле satellites присутствует и является массивом', function () {",
+                  "    pm.expect(pm.response.json().satellites).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить группировку по имени (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations/{{nonExistentName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations",
+                "{{nonExistentName}}"
+              ]
+            },
+            "description": "Запрос несуществующей группировки должен вернуть 404."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Удалить группировку",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations/{{constellationName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations",
+                "{{constellationName}}"
+              ]
+            },
+            "description": "Каскадно удаляет группировку и все её спутники. Выполнять в конце сценария."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 204 No Content', function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Удалить группировку повторно (404)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations/{{constellationName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations",
+                "{{constellationName}}"
+              ]
+            },
+            "description": "Повторное удаление уже удалённой группировки должно вернуть 404."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Space Operation Center",
+      "description": "Фасад высокого уровня: добавление спутников, миссии, деплой, сводки (SpaceOperationController)",
+      "item": [
+        {
+          "name": "Добавить спутники в группировку",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/add-satellites",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "add-satellites"
+              ]
+            },
+            "description": "Добавляет коммуникационный и съёмочный спутники в группировку (создаёт группировку, если её нет).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"constellationName\": \"{{constellationName}}\",\n  \"satelliteParams\": [\n    {\n      \"type\": \"COMMUNICATION\",\n      \"name\": \"{{commSatName}}\",\n      \"batteryLevel\": 0.95,\n      \"bandwidth\": 150.0\n    },\n    {\n      \"type\": \"IMAGE\",\n      \"name\": \"{{imgSatName}}\",\n      \"batteryLevel\": 0.9,\n      \"resolution\": 0.5\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Возвращены имена обоих добавленных спутников', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.be.an('array').that.includes(",
+                  "        pm.collectionVariables.get('commSatName'),",
+                  "        pm.collectionVariables.get('imgSatName')",
+                  "    );",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Добавить спутник с некорректным типом (400/422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/add-satellites",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "add-satellites"
+              ]
+            },
+            "description": "Отправка неподдерживаемого/некорректного значения type в теле запроса - Jackson не сможет десериализовать полиморфный SatelliteParam.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"constellationName\": \"{{constellationName}}\",\n  \"satelliteParams\": [\n    {\n      \"type\": \"UNKNOWN_TYPE\",\n      \"name\": \"BAD-SAT\",\n      \"batteryLevel\": 0.5\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 4xx или 500 (ошибка десериализации/валидации)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 422, 500]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Выполнить миссию группировки",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/missions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "missions"
+              ]
+            },
+            "description": "Активирует (если нужно) и запускает выполнение миссий для всех спутников группировки.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"constellationName\": \"{{constellationName}}\",\n  \"activateBeforeMission\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Выполнить миссию для несуществующей группировки (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/missions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "missions"
+              ]
+            },
+            "description": "Попытка выполнить миссию для группировки, которой не существует.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"constellationName\": \"{{nonExistentName}}\",\n  \"activateBeforeMission\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 422 Unprocessable Entity', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test('Есть понятное сообщение об ошибке', function () {",
+                  "    pm.expect(pm.response.json()).to.have.property('message');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Развернуть группировку (deploy)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/deploy",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "deploy"
+              ]
+            },
+            "description": "Комплексная операция: создание группировки + добавление спутников + активация + выполнение миссий.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"constellationName\": \"{{deployConstellationName}}\",\n  \"satelliteParams\": [\n    {\n      \"type\": \"IMAGE\",\n      \"name\": \"RECON-1\",\n      \"batteryLevel\": 1.0,\n      \"resolution\": 0.3\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Возвращён список развёрнутых спутников', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array').with.length.greaterThan(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить сводку по всем группировкам (overview)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/overview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "overview"
+              ]
+            },
+            "description": "Возвращает totalConstellations и карту группировок с числом спутников (всего/активных)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Есть поля totalConstellations и constellations', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('totalConstellations');",
+                  "    pm.expect(json).to.have.property('constellations');",
+                  "});",
+                  "",
+                  "pm.test('totalConstellations соответствует размеру constellations', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(Object.keys(json.constellations).length).to.eql(json.totalConstellations);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить сводку по конкретной группировке (report)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations/{{constellationName}}/report",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations",
+                "{{constellationName}}",
+                "report"
+              ]
+            },
+            "description": "Краткий отчёт: constellationName, totalSatellites, activeSatellites."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('activeSatellites не превышает totalSatellites', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.activeSatellites).to.be.at.most(json.totalSatellites);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Деактивировать спутник (decommission)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations/{{constellationName}}/satellites/{{commSatName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations",
+                "{{constellationName}}",
+                "satellites",
+                "{{commSatName}}"
+              ]
+            },
+            "description": "Выводит спутник из эксплуатации (не удаляет физически, а деактивирует)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Текст подтверждает деактивацию нужного спутника', function () {",
+                  "    pm.expect(pm.response.text()).to.include(pm.collectionVariables.get('commSatName'));",
+                  "    pm.expect(pm.response.text()).to.include('деактивирован');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Деактивировать несуществующий спутник (404)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/constellations/{{constellationName}}/satellites/{{nonExistentName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "constellations",
+                "{{constellationName}}",
+                "satellites",
+                "{{nonExistentName}}"
+              ]
+            },
+            "description": "Попытка деактивировать спутник, которого нет в группировке."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Satellites CRUD",
+      "description": "Прямое чтение спутников (SatelliteController)",
+      "item": [
+        {
+          "name": "Получить все спутники",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/satellites",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "satellites"
+              ]
+            },
+            "description": "Список всех спутников во всех группировках."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Ответ - массив, и если непустой - сохраняем id первого элемента', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.be.an('array');",
+                  "    if (json.length > 0) {",
+                  "        pm.collectionVariables.set('satelliteId', json[0].id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить спутник по ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/satellites/{{satelliteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "satellites",
+                "{{satelliteId}}"
+              ]
+            },
+            "description": "satelliteId берётся из переменной коллекции (заполняется предыдущим запросом или вручную)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('ID в ответе совпадает с запрошенным', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(String(json.id)).to.eql(pm.collectionVariables.get('satelliteId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить спутник по несуществующему ID (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/satellites/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "satellites",
+                "999999"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Найти спутник по имени",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/satellites/by-name?name={{commSatName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "satellites",
+                "by-name"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{commSatName}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Имя в ответе совпадает', function () {",
+                  "    pm.expect(pm.response.json().name).to.eql(pm.collectionVariables.get('commSatName'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить активные спутники",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/satellites/active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "satellites",
+                "active"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Все спутники в ответе действительно активны', function () {",
+                  "    const json = pm.response.json();",
+                  "    json.forEach(s => pm.expect(s.state.active).to.be.true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Получить спутники группировки",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/satellites/by-constellation?constellationName={{constellationName}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "satellites",
+                "by-constellation"
+              ],
+              "query": [
+                {
+                  "key": "constellationName",
+                  "value": "{{constellationName}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Ответ - массив', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Telemetry",
+      "description": "Данные телеметрии, поступающие по gRPC-стриму (TelemetryController)",
+      "item": [
+        {
+          "name": "Телеметрия всех спутников",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/telemetry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "telemetry"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Каждая запись содержит temperatureStatus из допустимого набора', function () {",
+                  "    const allowed = ['NO_DATA', 'TOO_COLD', 'OVERHEATING', 'NOMINAL'];",
+                  "    pm.response.json().forEach(t => {",
+                  "        pm.expect(allowed).to.include(t.temperatureStatus);",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Телеметрия конкретного спутника",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/telemetry/{{satelliteId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "telemetry",
+                "{{satelliteId}}"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Логика статуса температуры соответствует значению internalTemperature', function () {",
+                  "    const t = pm.response.json();",
+                  "    if (t.internalTemperature === null) {",
+                  "        pm.expect(t.temperatureStatus).to.eql('NO_DATA');",
+                  "    } else if (t.internalTemperature < 15.0) {",
+                  "        pm.expect(t.temperatureStatus).to.eql('TOO_COLD');",
+                  "    } else if (t.internalTemperature > 40.0) {",
+                  "        pm.expect(t.temperatureStatus).to.eql('OVERHEATING');",
+                  "    } else {",
+                  "        pm.expect(t.temperatureStatus).to.eql('NOMINAL');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Телеметрия несуществующего спутника (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/telemetry/999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "telemetry",
+                "999999"
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Статус 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Глобальная проверка для ВСЕХ запросов коллекции",
+          "pm.test('Status code is not 5xx (сервис не упал)', function () {",
+          "    pm.expect(pm.response.code).to.be.below(500);",
+          "});",
+          "",
+          "pm.test('Время ответа < 3000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(3000);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "constellationName",
+      "value": "Test-Constellation",
+      "type": "string"
+    },
+    {
+      "key": "deployConstellationName",
+      "value": "Recon-Alpha",
+      "type": "string"
+    },
+    {
+      "key": "commSatName",
+      "value": "COMM-SAT-1",
+      "type": "string"
+    },
+    {
+      "key": "imgSatName",
+      "value": "IMG-SAT-1",
+      "type": "string"
+    },
+    {
+      "key": "nonExistentName",
+      "value": "Does-Not-Exist-XYZ",
+      "type": "string"
+    },
+    {
+      "key": "satelliteId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "createdConstellationId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

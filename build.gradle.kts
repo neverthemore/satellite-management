@@ -11,7 +11,11 @@ group = "seminars"
 version = "0.0.1-SNAPSHOT"
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_17
+}
+
+springBoot {
+    mainClass.set("seminars.Main")
 }
 
 repositories {
@@ -34,6 +38,7 @@ dependencies {
 
     // gRPC Client — подключается к satellite-telemetry на порту 9091
     implementation("net.devh:grpc-client-spring-boot-starter:3.1.0.RELEASE")
+    implementation("net.devh:grpc-server-spring-boot-starter:3.1.0.RELEASE")
     implementation("io.grpc:grpc-protobuf:1.62.2")
     implementation("io.grpc:grpc-stub:1.62.2")
     compileOnly("org.apache.tomcat:annotations-api:6.0.53")
@@ -84,6 +89,10 @@ jacoco {
 tasks.test {
     useJUnitPlatform()
     finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    jvmArgs = listOf("-Dfile.encoding=UTF-8", "-Dconsole.encoding=UTF-8")
 }
 
 tasks.jacocoTestReport {
