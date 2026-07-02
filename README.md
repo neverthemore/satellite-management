@@ -1,172 +1,196 @@
-# 🛰️ Satellite Management System — Семинар 9.2 (JPA + PostgreSQL)
+# 🛰️ Satellite Management System — Семинар 10 (gRPC Server Streaming)
 
-Добавлена поддержка PostgreSQL через Spring Data JPA и Flyway. Данные сохраняются между перезапусками.
+Добавлен третий микросервис `satellite-telemetry`, генерирующий телеметрию спутников через gRPC Server Streaming. Основной сервис подписывается на поток и сохраняет данные температуры в PostgreSQL.
 
 ---
 
-## 📋 Что изменилось
+## 📦 Три архива
 
-| Было | Стало |
+| Архив | Что внутри |
 |---|---|
-| `ConstellationRepository` — `HashMap<String, SatelliteConstellation>` | **Удалён**, заменён на `SatelliteConstellationRepository extends JpaRepository` |
-| Данные в памяти — теряются при рестарте | Данные в PostgreSQL — переживают рестарты |
-| Доменные классы — чистые Java-объекты | Доменные классы — JPA-сущности с аннотациями |
+| `satellite-spring.zip` | Основной сервис (порт 8080, REST + gRPC клиент) |
+| `satellite-telemetry.zip` | Новый gRPC-сервис телеметрии (порт 9091) |
+| `satellite-docker.zip` | docker-compose + Dockerfiles (все 4 сервиса) |
 
 ---
 
-## 🗂️ Изменённые / добавленные файлы
+## ⚡ Обязательный шаг перед сборкой
 
+Оба проекта (`satellite-spring` и `satellite-telemetry`) содержат `.proto`-файл. Java-классы из него генерируются Gradle-плагином `com.google.protobuf`:
+
+```bash
+# В satellite-telemetry:
+cd satellite-telemetry && ./gradlew generateProto
+
+# В satellite-spring:
+cd satellite-spring && ./gradlew generateProto
 ```
-build.gradle.kts           ← + jpa, postgresql, flyway, h2 (test)
-application.yaml           ← + datasource, jpa, flyway config (env-vars)
-src/main/resources/db/migration/
-  V1__init_schema.sql      ← НОВЫЙ: Flyway-миграция, 3NF-схема, индексы
 
-domain/
-  EnergySystem.java        ← @Embeddable + protected no-arg ctor для JPA
-  SatelliteState.java      ← @Embeddable + protected no-arg ctor
-  Satellite.java           ← @Entity @Inheritance(JOINED) @DiscriminatorColumn
-  CommunicationSatellite.java ← @Entity @Table @DiscriminatorValue("COMMUNICATION")
-  ImagingSatellite.java    ← @Entity @Table @DiscriminatorValue("IMAGE")
-  SatelliteConstellation.java ← @Entity @OneToMany(cascade=ALL) @JsonManagedReference
+Без этого шага проекты не скомпилируются — `TelemetryServiceGrpc`, `TelemetryRequest`, `TelemetryUpdate` не существуют до генерации.
 
-repository/
-  ConstellationRepository.java ← УДАЛЁН (HashMap)
-  SatelliteConstellationRepository.java ← НОВЫЙ: JpaRepository + findByConstellationNameWithSatellites
-  SatelliteRepository.java ← НОВЫЙ: JpaRepository + findByIsActiveTrue
-
-service/ConstellationService.java  ← @Transactional, использует JPA-репозитории
-controller/
-  ConstellationController.java ← НОВЫЙ: CRUD для группировок
-  SatelliteController.java     ← НОВЫЙ: CRUD для спутников
-Main.java  ← использует SatelliteConstellationRepository
-
-test/resources/application-test.yaml ← НОВЫЙ: H2 + flyway=false для тестов
-test/repository/
-  SatelliteConstellationRepositoryTest.java ← НОВЫЙ: @DataJpaTest + H2
-  SatelliteRepositoryTest.java              ← НОВЫЙ: @DataJpaTest + H2
-  ConstellationRepositoryMockTest.java      ← переписан под JPA-моки
-  ConstellationRepositoryIntegrationTest.java ← переписан с @ActiveProfiles("test")
-```
+В Docker-сборке (`Dockerfile`) `bootJar` запускает `generateProto` автоматически (Gradle граф задач).
 
 ---
 
-## 🏗️ Схема БД (3NF, Flyway V1)
+## 🗂️ Новые файлы
 
 ```
-satellite_constellations (id PK, constellation_name UNIQUE)
-         ↑ FK (constellation_id)
-satellites (id PK, name, satellite_type, is_active, status_message,
-            battery_level, max_battery, min_battery, low_battery_threshold)
-         ↑ FK (id)                    ↑ FK (id)
-communication_satellites(bandwidth)   imaging_satellites(resolution, photos_taken)
+satellite-telemetry/                    ← НОВЫЙ микросервис
+├── src/main/proto/telemetry.proto      ← gRPC контракт
+├── src/main/java/telemetry/
+│   ├── TelemetryApplication.java
+│   └── service/TelemetryGrpcService.java  ← @GrpcService, Server Streaming
+└── src/main/resources/application.yml     ← grpc.server.port: 9091
 
-Индексы:
-  idx_constellation_name   — уникальный, поиск по имени (частый, редко меняется)
-  idx_satellite_is_active  — фильтр активных спутников
-  idx_satellite_constellation — JOIN satellites → constellation
+satellite-spring/                       ← обновлён
+├── src/main/proto/telemetry.proto      ← COPY для генерации клиентского кода
+├── src/main/java/seminars/
+│   ├── telemetry/
+│   │   ├── TelemetryGrpcClient.java    ← @GrpcClient, подписка на поток
+│   │   └── TelemetryUpdateService.java ← @Transactional, сохранение в DB
+│   ├── controller/TelemetryController.java ← REST /api/telemetry
+│   └── domain/Satellite.java           ← + internalTemperature, externalTemperature
+├── src/main/resources/db/migration/
+│   └── V2__add_temperature_columns.sql ← Flyway: 2 nullable колонки
+└── build.gradle.kts                    ← + grpc-client-starter + protobuf plugin
 ```
 
 ---
 
-## ❓ Ответ: @Embedded vs @OneToOne
+## 📡 gRPC контракт (telemetry.proto)
 
-**`@Embedded` (`EnergySystem`, `SatelliteState`)**:
-- Не существуют без спутника → нет смысла хранить отдельно
-- Нет потребности в прямом API-доступе (нет `/api/energy-systems`)
-- Поля функционально зависят только от PK спутника → 3NF не нарушается при включении в ту же таблицу
-- Меньше JOIN-ов при чтении → лучше производительность
-
-**`@OneToOne` было бы уместно, если бы**:
-- Объект имел отдельный жизненный цикл (можно создать без спутника)
-- Требовался прямой репозиторий / API-доступ
-- Таблица `satellites` стала слишком широкой из-за embedded-полей
-- Объект разделялся между несколькими спутниками (`@ManyToOne`)
-
----
-
-## ⚡ Ключевые технические детали
-
-### JPA Inheritance: JOINED
-```java
-@Entity
-@Table(name = "satellites")
-@Inheritance(strategy = InheritanceType.JOINED)
-@DiscriminatorColumn(name = "satellite_type")
-public abstract class Satellite { ... }
-
-@Entity @Table(name = "communication_satellites")
-@DiscriminatorValue("COMMUNICATION")
-public class CommunicationSatellite extends Satellite { ... }
-```
-
-### Bidirectional @OneToMany — управление обеими сторонами
-```java
-// В SatelliteConstellation.addSatellite():
-satellites.add(satellite);
-satellite.setConstellation(this);  // ОБЯЗАТЕЛЬНО для FK constellation_id
-```
-Без `setConstellation(this)` Hibernate не запишет FK и спутник останется без группировки.
-
-### @Transactional + dirty checking
-```java
-@Transactional
-public void activateAllSatellites(String name) {
-    SatelliteConstellation c = getConstellationOrThrow(name);
-    for (Satellite s : c.getSatellites()) s.activate();
-    // Hibernate автоматически сохранит is_active при закрытии транзакции
+```proto
+service TelemetryService {
+  rpc StreamTelemetry(TelemetryRequest) returns (stream TelemetryUpdate);
 }
 ```
 
-### N+1 проблема и JOIN FETCH
-```java
-@Query("SELECT c FROM SatelliteConstellation c LEFT JOIN FETCH c.satellites WHERE c.constellationName = :name")
-Optional<SatelliteConstellation> findByConstellationNameWithSatellites(String name);
+**Server Streaming** — клиент делает один запрос, сервер непрерывно шлёт обновления:
+
 ```
-Без `JOIN FETCH` доступ к `constellation.getSatellites()` с `FetchType.LAZY` вне транзакции → `LazyInitializationException`.
+satellite-spring                   satellite-telemetry
+  │                                         │
+  │──── StreamTelemetry(request) ────────▶  │
+  │                                         │
+  │◀─── TelemetryUpdate (Связь-1) ────────  │  каждые 2 секунды
+  │◀─── TelemetryUpdate (ДЗЗ-1) ──────────  │  для каждого спутника
+  │◀─── TelemetryUpdate (ДЗЗ-2) ──────────  │
+  │           ...                            │
+```
 
 ---
 
-## 🧪 Стратегия тестирования
+## 🌡 Эмулируемые данные
 
-| Тест | Аннотация | БД |
+| Поле | Диапазон | Смысл |
 |---|---|---|
-| `SatelliteConstellationRepositoryTest` | `@DataJpaTest` | H2 auto |
-| `SatelliteRepositoryTest` | `@DataJpaTest` | H2 auto |
-| `ConstellationRepositoryMockTest` | `@ExtendWith(Mockito)` | нет |
-| `ConstellationRepositoryIntegrationTest` | `@SpringBootTest @ActiveProfiles("test")` | H2 |
-| Все остальные `@SpringBootTest` | `@ActiveProfiles("test")` | H2 |
+| `internalTemperature` | 15–35°C | Температура электроники (норма) |
+| `externalTemperature` | -150 до +120°C | Корпус: тень (-150°C) → Солнце (+120°C) |
+| `batteryLevel` | 0.3–1.0 | Заряд батареи |
 
-Для production-близких тестов — используй **Testcontainers** с реальным PostgreSQL.
+---
+
+## 🔄 Поток данных
+
+```
+[telemetry-service] generateRandomTelemetry() → onNext(TelemetryUpdate)
+         ↓ gRPC stream (port 9091)
+[satellite-spring] TelemetryGrpcClient.onNext() → TelemetryUpdateService.applyTelemetryUpdate()
+         ↓ @Transactional
+[PostgreSQL] UPDATE satellites SET internal_temperature=?, external_temperature=? WHERE name=?
+         ↓ REST API
+[Client] GET /api/telemetry → [{"name":"Связь-1","internalTemperature":22.5,...}]
+```
+
+---
+
+## ⚙️ Ключевые детали реализации
+
+### @ConditionalOnProperty на клиенте
+```java
+@ConditionalOnProperty(name = "telemetry.client.enabled", havingValue = "true")
+public class TelemetryGrpcClient { ... }
+```
+В `application-test.yaml`: `telemetry.client.enabled: false` — не пытается подключиться в тестах.
+
+### Retry при ошибке подключения
+```java
+@Override
+public void onError(Throwable t) {
+    retryExecutor.schedule(this::connect, 30, TimeUnit.SECONDS);
+}
+```
+Если `telemetry-service` недоступен — пробует снова каждые 30 секунд.
+
+### @Transactional в отдельном сервисе
+`onNext()` callback работает в gRPC-потоке (не Spring-managed). Вызов `@Transactional`-метода через Spring-прокси возможен только из другого `@Service`. Поэтому обновление БД вынесено в `TelemetryUpdateService`.
+
+### Отмена стрима при дисконнекте клиента
+```java
+serverObserver.setOnCancelHandler(() -> {
+    executor.shutdown();  // останавливаем ScheduledExecutorService
+});
+```
 
 ---
 
 ## 🚀 Запуск
 
-### Локально (PostgreSQL через Docker)
-```bash
-# Только база данных:
-docker compose up postgres -d
-
-# Приложение (Flyway создаст схему при первом запуске):
-cd satellite-spring && ./gradlew bootRun
-```
-
-### Полный стек в Docker
+### Все 4 сервиса в Docker
 ```bash
 docker compose up --build
 ```
 
-### Тесты (H2, без PostgreSQL)
+### Локально (последовательно):
 ```bash
-cd satellite-spring && ./gradlew test jacocoTestReport
+# 1. Телеметрия
+cd satellite-telemetry && ./gradlew generateProto bootRun
+
+# 2. Основной сервис (PostgreSQL должен быть запущен)
+cd satellite-spring && ./gradlew generateProto bootRun
+
+# 3. Планировщик
+cd satellite-scheduler && ./gradlew bootRun
+```
+
+### Проверка телеметрии через REST
+```bash
+# После появления данных (~5 сек):
+curl http://localhost:8080/api/telemetry
+```
+
+### Проверка gRPC-стрима напрямую (grpcurl)
+```bash
+grpcurl -plaintext -d '{"satellite_names":["Связь-1","ДЗЗ-1"]}' \
+  localhost:9091 telemetry.TelemetryService/StreamTelemetry
+```
+
+---
+
+## 🧪 Тесты
+
+| Файл | Что проверяет |
+|---|---|
+| `TelemetryUpdateServiceTest` | Mockito-тест: обновляет температуру / пропускает неизвестные спутники |
+| `TelemetryControllerTest` | MockMvc: GET /api/telemetry, 404 для несуществующего ID |
+
+---
+
+## 📐 Docker Compose (4 сервиса)
+
+```
+postgres:9432       ← PostgreSQL с именованным томом
+telemetry-service:9091  ← gRPC Server Streaming
+server:8080         ← REST + JPA + gRPC Client (зависит от postgres + telemetry-service)
+mission-service:8081    ← REST планировщик (зависит от server)
 ```
 
 ---
 
 ## 📚 Технологии
 
-![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-enabled-green)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)
-![Flyway](https://img.shields.io/badge/Flyway-migrations-red)
-![H2](https://img.shields.io/badge/H2-test--only-orange)
+![gRPC](https://img.shields.io/badge/gRPC-Server%20Streaming-blue)
+![Protobuf](https://img.shields.io/badge/Protobuf-3.25-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
+![Flyway](https://img.shields.io/badge/Flyway-V2-red)
