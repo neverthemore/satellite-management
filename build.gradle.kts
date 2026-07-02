@@ -11,7 +11,7 @@ group = "seminars"
 version = "0.0.1-SNAPSHOT"
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_17
 }
 
 repositories {
@@ -31,6 +31,8 @@ dependencies {
 
     // Kafka — асинхронный обмен событиями о спутниках между микросервисами
     implementation("org.springframework.kafka:spring-kafka")
+    // Тестовые утилиты для Kafka (EmbeddedKafkaBroker, @EmbeddedKafka и т.д.)
+    testImplementation("org.springframework.kafka:spring-kafka-test")
 
     // gRPC Client — подключается к satellite-telemetry на порту 9091
     implementation("net.devh:grpc-client-spring-boot-starter:3.1.0.RELEASE")

@@ -68,7 +68,7 @@ class SatelliteRepositoryTest {
         sat.activate();
         satelliteRepository.save(sat);
 
-        List<Satellite> active = satelliteRepository.findByIsActiveTrue();
+        List<Satellite> active = satelliteRepository.findByActiveTrue();
         assertEquals(1, active.size());
         assertEquals(COMM_SAT_NAME, active.get(0).getName());
     }
