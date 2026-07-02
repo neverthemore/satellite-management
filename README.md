@@ -1,131 +1,111 @@
-🛰️ Satellite Management System
-Учебный проект по объектно-ориентированному программированию на Java.  
-Реализует систему управления спутниковой группировкой с применением наследования, абстракции и полиморфизма.
----
-📋 Описание
-Система моделирует работу космической группировки, состоящей из спутников двух типов:
-Спутники связи (`CommunicationSatellite`) — передают данные с заданной полосой пропускания
-Спутники ДЗЗ (`ImagingSatellite`) — выполняют дистанционное зондирование Земли, делают фотоснимки
-Группировка управляет спутниками централизованно: активирует их и запускает выполнение миссий.
----
-🗂️ Структура проекта
-```
-satellite-management/
-└── src/
-    ├── Satellite.java               # Абстрактный базовый класс
-    ├── CommunicationSatellite.java  # Спутник связи
-    ├── ImagingSatellite.java        # Спутник ДЗЗ
-    ├── SatelliteConstellation.java  # Спутниковая группировка
-    └── Main.java                    # Точка входа / демонстрация
-```
----
-🏗️ Диаграмма классов
-```
-                    ┌─────────────────────────┐
-                    │      <<abstract>>        │
-                    │        Satellite         │
-                    │─────────────────────────│
-                    │ # name: String           │
-                    │ # isActive: boolean      │
-                    │ # batteryLevel: double   │
-                    │─────────────────────────│
-                    │ + activate(): boolean    │
-                    │ + deactivate(): void     │
-                    │ + consumeBattery(double) │
-                    │ # performMission(): void │
-                    └────────────┬────────────┘
-                                 │
-               ┌─────────────────┴──────────────────┐
-               │                                    │
-┌──────────────────────────┐       ┌────────────────────────────┐
-│   CommunicationSatellite │       │      ImagingSatellite      │
-│──────────────────────────│       │────────────────────────────│
-│ - bandWidth: double      │       │ - resolution: double       │
-│──────────────────────────│       │ - photosTaken: int         │
-│ + getBandwidth(): double │       │────────────────────────────│
-│ + sendData(double): void │       │ + getResolution(): double  │
-│ + performMission(): void │       │ + getPhotosTaken(): int    │
-│ + toString(): String     │       │ + takePhoto(): void        │
-└──────────────────────────┘       │ + performMission(): void   │
-                                   │ + toString(): String       │
-                                   └────────────────────────────┘
+# 🛰️ Satellite Management System — Семинары 3–4 (Spring Boot, DI, Lombok, тесты)
 
-                    ┌─────────────────────────────────┐
-                    │      SatelliteConstellation     │
-                    │─────────────────────────────────│
-                    │ - constellationName: String      │
-                    │ - satellites: List<Satellite>    │
-                    │─────────────────────────────────│
-                    │ + addSatellite(Satellite): void  │
-                    │ + executeAllMissions(): void     │
-                    │ + getSatellites(): List<...>     │
-                    └─────────────────────────────────┘
+Система управления спутниковой группировкой на **Spring Boot**, с реализацией принципа **Dependency Inversion**, кодогенерацией через **Lombok** и тремя видами тестов (Unit / Mock / Integration) с отчётом покрытия **JaCoCo**.
+
+---
+
+## 📋 Что добавилось по сравнению с семинаром 2
+
+| Семинар | Что добавлено |
+|---|---|
+| 3 | Spring Boot, `ConstellationRepository`, `SpaceOperationCenterService`, DI через конструктор |
+| 4 | Lombok (переписан весь продакшен-код), Unit/Mock/Integration-тесты, JaCoCo |
+
+---
+
+## 🗂️ Структура проекта
+
 ```
+satellite-spring/
+├── build.gradle.kts                 # Spring Boot + Lombok + JaCoCo
+├── settings.gradle.kts
+├── gradlew / gradlew.bat            # запуск без локального Gradle
+├── src/main/resources/application.properties
+└── src/main/java/seminars/
+    ├── Main.java                            # @SpringBootApplication
+    ├── domain/                              # обычные классы, Spring их не создаёт
+    │   ├── Satellite.java
+    │   ├── EnergySystem.java
+    │   ├── SatelliteState.java
+    │   ├── CommunicationSatellite.java
+    │   ├── ImagingSatellite.java
+    │   └── SatelliteConstellation.java
+    ├── repository/
+    │   └── ConstellationRepository.java     # @Repository, хранилище в Map
+    └── service/
+        └── SpaceOperationCenterService.java # @Service, DI через конструктор
+└── src/test/java/seminars/repository/
+    ├── ConstellationRepositoryUnitTest.java
+    ├── ConstellationRepositoryMockTest.java
+    └── ConstellationRepositoryIntegrationTest.java
+```
+
 ---
-⚙️ Принципы ООП в проекте
-Принцип	Где применён
-Абстракция	`Satellite` — абстрактный класс с методом `performMission()`
-Наследование	`CommunicationSatellite` и `ImagingSatellite` расширяют `Satellite`
-Полиморфизм	`SatelliteConstellation` хранит `List<Satellite>` и вызывает `performMission()` у каждого
-Инкапсуляция	Поля закрыты модификаторами `private` / `protected`, доступ через геттеры
-Агрегация	`SatelliteConstellation` содержит список спутников через `addSatellite()`
+
+## 🔄 Dependency Inversion Principle
+
+- `SpaceOperationCenterService` не создаёт `ConstellationRepository` сам (`new ...`) — получает готовый экземпляр через конструктор
+- `Main` не создаёт ни репозиторий, ни сервис вручную — забирает их из `ConfigurableApplicationContext` через `getBean(...)`
+- Единственное место, которое «знает», как всё собрать — это сам Spring-контейнер; остальной код зависит только от абстракций
+
 ---
-🚀 Запуск
-Требования
-Java 17 или выше
-Компиляция и запуск
+
+## 🧬 Где использован Lombok (и где сознательно нет)
+
+| Класс | Аннотации | Почему |
+|---|---|---|
+| `EnergySystem` | `@Getter @ToString @AllArgsConstructor` | один мутируемый филд — идеальный кандидат |
+| `SatelliteState` | `@Getter @ToString @NoArgsConstructor` | дефолты через инициализаторы полей |
+| `Satellite` | `@Getter` только на `name`, `@ToString` | конструктор с побочным эффектом (println) — вручную; `state`/`energy` не выставлены наружу (инкапсуляция) |
+| `ImagingSatellite` / `CommunicationSatellite` | `@Getter @ToString(callSuper=true)` | конструктор зовёт `super(...)` — Lombok так не умеет |
+| `SatelliteConstellation` | `@Getter @ToString` | конструктор с println — вручную |
+| `ConstellationRepository` | **без Lombok** | там нет геттер-бойлерплейта, только CRUD-логика |
+| `SpaceOperationCenterService` | `@RequiredArgsConstructor` | классика для Spring-сервиса с одной DI-зависимостью |
+
+⚠️ `toString()` теперь в формате Lombok `ClassName(field=value)` (круглые скобки, без кавычек у строк) вместо прежнего `ClassName{field=value}`.
+
+---
+
+## 🧪 Тесты
+
+Все три класса лежат в `seminars.repository`, чтобы зеркалить пакет `ConstellationRepository`.
+
+- **`ConstellationRepositoryUnitTest`** — без Spring, `new ConstellationRepository()`, проверяет все CRUD-методы (позитивные/негативные сценарии + граничный случай с пустой строкой)
+- **`ConstellationRepositoryMockTest`** — `@Mock ConstellationRepository` + `@InjectMocks SpaceOperationCenterService`. Поскольку у самого репозитория нет зависимостей для мока, тест мокает репозиторий и проверяет, что сервис правильно с ним взаимодействует (`when().thenReturn()`, `verify()`)
+- **`ConstellationRepositoryIntegrationTest`** — `@SpringBootTest`, `@Autowired` на оба бина, полный жизненный цикл объекта: создание группировки → добавление спутников → активация → выполнение миссий, с проверками между шагами
+
+---
+
+## 🚀 Запуск
+
+Требуется Java 21+ и доступ в интернет (для первой загрузки зависимостей Gradle).
+
 ```bash
-# Перейти в папку с исходниками
-cd src
+# Запуск приложения
+./gradlew bootRun
 
-# Скомпилировать
-javac -encoding UTF-8 *.java
+# Запуск тестов
+./gradlew test
 
-# Запустить
-java -Dfile.encoding=UTF-8 Main
+# Тесты + отчёт о покрытии
+./gradlew test jacocoTestReport
 ```
+
+Отчёты после запуска:
+- Результаты тестов — `build/reports/tests/test/index.html`
+- Покрытие JaCoCo — `build/reports/jacoco/test/html/index.html`
+
 ---
-🖥️ Пример вывода
-```
-ЗАПУСК СИСТЕМЫ УПРАВЛЕНИЯ СПУТНИКОВОЙ ГРУППИРОВКОЙ
-============================================================
-СОЗДАНИЕ СПЕЦИАЛИЗИРОВАННЫХ СПУТНИКОВ:
----------------------------------------------
-Создан спутник: Связь-1 (заряд: 85%)
-Создан спутник: Связь-2 (заряд: 75%)
-Создан спутник: ДЗЗ-1 (заряд: 92%)
-Создан спутник: ДЗЗ-2 (заряд: 45%)
-Создан спутник: ДЗЗ-3 (заряд: 15%)
----------------------------------------------
-Создана спутниковая группировка: RU Basic
----------------------------------------------
-ФОРМИРОВАНИЕ ГРУППИРОВКИ:
------------------------------------
-Связь-1 добавлен в группировку 'RU Basic'
-...
------------------------------------
-АКТИВАЦИЯ СПУТНИКОВ:
--------------------------
-✅ Связь-1: Активация успешна
-✅ Связь-2: Активация успешна
-✅ ДЗЗ-1: Активация успешна
-✅ ДЗЗ-2: Активация успешна
-🛑 ДЗЗ-3: Ошибка активации (заряд: 15%)
-ВЫПОЛНЕНИЕ МИССИЙ ГРУППИРОВКИ RU BASIC
-==================================================
-Связь-1: Передача данных со скоростью 500.0 Мбит/с
-Связь-1: Отправил 500.0 Мбит данных!
-ДЗЗ-1: Съемка территории с разрешением 2.5 м/пиксель
-ДЗЗ-1: Снимок #1 сделан!
-🛑 ДЗЗ-3: Не может выполнить съемку - не активен
-```
+
+## ⚠️ Известное ограничение проверки
+
+Сборка и тесты сгенерированы и логически проверены (продакшен-логика дополнительно сверена вручную через «развёрнутый» эквивалент Lombok-кода), но **не прогнаны вживую** — у среды, в которой создавался проект, нет доступа к Maven Central. Перед сдачей обязательно прогони `./gradlew test` локально.
+
 ---
-🔋 Логика управления зарядом
-Спутник активируется, только если `batteryLevel > 0.2` (20%)
-Каждая миссия потребляет заряд:
-Спутник связи — 0.05 за сеанс
-Спутник ДЗЗ — 0.08 за снимок
-При падении заряда до `≤ 0.2` спутник автоматически отключается
----
-📚 Технологии
+
+## 📚 Технологии
+
 ![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen?logo=springboot)
+![Lombok](https://img.shields.io/badge/Lombok-enabled-red)
+![JaCoCo](https://img.shields.io/badge/JaCoCo-coverage-yellow)
