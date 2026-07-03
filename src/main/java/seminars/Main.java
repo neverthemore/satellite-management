@@ -16,6 +16,18 @@ import seminars.service.ConstellationService;
 public class Main {
 
     public static void main(String[] args) {
+        // seminars.Main — REST API и gRPC-КЛИЕНТ (seminars.telemetry.TelemetryGrpcClient),
+        // но grpc-server-spring-boot-starter тоже присутствует в общем classpath модуля
+        // (он нужен только telemetry.TelemetryApplication). Без этой настройки его
+        // автоконфигурация всё равно поднимает embedded gRPC-сервер (с встроенными
+        // Health/Reflection-сервисами, у Main нет ни одного @GrpcService) на порту
+        // grpc.server.port из application.yaml — том же 9091, что уже слушает
+        // запущенный telemetry.TelemetryApplication — и падает с
+        // "Address already in use: bind". "-1" — официально документированное
+        // значение net.devh grpc-server-spring-boot-starter для полного отключения
+        // сервера (см. GrpcServerProperties#port), Main он не нужен вовсе.
+        System.setProperty("grpc.server.port", "-1");
+
         System.out.println("ЗАПУСК СИСТЕМЫ УПРАВЛЕНИЯ СПУТНИКОВОЙ ГРУППИРОВКОЙ");
         System.out.println("============================================================");
 

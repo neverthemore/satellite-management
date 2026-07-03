@@ -46,6 +46,12 @@ management:
       show-details: never
 
 grpc:
+  server:
+    # Порт gRPC-сервера телеметрии (telemetry.TelemetryApplication).
+    # Должен совпадать с TELEMETRY_GRPC_PORT клиента ниже (по умолчанию 9091),
+    # иначе клиент будет получать UNAVAILABLE, даже когда сервер запущен —
+    # без этой настройки grpc-server-spring-boot-starter слушает 9090.
+    port: ${GRPC_PORT:9091}
   client:
     telemetry-service:
       address: "static://${TELEMETRY_SERVICE_HOST:localhost}:${TELEMETRY_GRPC_PORT:9091}"
@@ -54,3 +60,14 @@ grpc:
 telemetry:
   client:
     enabled: true
+
+app:
+  space-center-service:
+    # URL основного REST API (seminars.Main), к которому scheduler.SpaceOperationClient
+    # ходит через RestClient. Раньше эта секция вообще отсутствовала — RestClient.builder()
+    # получал baseUrl(null) и SchedulerApplication падал с NullPointerException при старте.
+    url: ${SERVER_URL:http://localhost:8080}
+    # Список запланированных миссий пуст по умолчанию — при необходимости переопределите
+    # в application.yaml или через переменные окружения. Пустой список не является ошибкой:
+    # ConfiguredMissionScheduler просто ничего не регистрирует и логирует предупреждение.
+    missions: []

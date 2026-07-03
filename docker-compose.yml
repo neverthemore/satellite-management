@@ -35,7 +35,7 @@ services:
   #   PLAINTEXT://kafka:9092   — для сервисов внутри Docker-сети
   #   EXTERNAL://localhost:9094 — для доступа с хоста (grpc, kafka-ui и т.п.)
   kafka:
-    image: bitnami/kafka:3.7.0
+    image: bitnamilegacy/kafka:3.7.0
     container_name: kafka
     environment:
       KAFKA_CFG_NODE_ID: 0
