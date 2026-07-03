@@ -1,196 +1,191 @@
-# 🛰️ Satellite Management System — Семинар 10 (gRPC Server Streaming)
+# Satellite Management System — нагрузочное тестирование
 
-Добавлен третий микросервис `satellite-telemetry`, генерирующий телеметрию спутников через gRPC Server Streaming. Основной сервис подписывается на поток и сохраняет данные температуры в PostgreSQL.
+Этот раздел репозитория содержит нагрузочный тест ключевого пользовательского
+сценария сервиса `satellite-spring` (REST API управления спутниковыми
+группировками), выполненный в рамках курса по системному дизайну.
 
----
+* Инструмент: [k6](https://k6.io)
+* Отчётность: [Allure Report](https://allurereport.org) (генерируется из
+результатов k6 отдельным адаптером) + нативный HTML-отчёт k6 как дублирующий
+быстрый способ посмотреть агрегированные цифры
+* Файлы теста: [`load-tests/`](./load-tests)
 
-## 📦 Три архива
+\---
 
-| Архив | Что внутри |
-|---|---|
-| `satellite-spring.zip` | Основной сервис (порт 8080, REST + gRPC клиент) |
-| `satellite-telemetry.zip` | Новый gRPC-сервис телеметрии (порт 9091) |
-| `satellite-docker.zip` | docker-compose + Dockerfiles (все 4 сервиса) |
+## Пользовательский сценарий
 
----
+**«Оператор Центра управления полётами разворачивает новую спутниковую
+группировку и следит за её статусом»**
 
-## ⚡ Обязательный шаг перед сборкой
+Сценарий имитирует законченный рабочий цикл оператора: от создания
+группировки до контроля телеметрии перед завершением смены. Каждый
+виртуальный пользователь k6 проходит все 7 шагов последовательно, работая
+со своей собственной, уникальной группировкой (имя строится из id
+виртуального пользователя, номера итерации и таймстемпа) — это исключает
+конфликты между параллельными пользователями на уникальности имени
+(API отвечает `422`, если группировка с таким именем уже существует) и
+реалистично имитирует то, что разные операторы управляют разными
+группировками одновременно.
 
-Оба проекта (`satellite-spring` и `satellite-telemetry`) содержат `.proto`-файл. Java-классы из него генерируются Gradle-плагином `com.google.protobuf`:
+|#|Шаг|Метод и путь|Тип|
+|-|-|-|-|
+|1|Создать группировку|`POST /api/constellations?name=...`|запись|
+|2|Добавить спутники (связь + съёмка)|`POST /api/add-satellites`|запись|
+|3|Выполнить миссию (активация + отправка данных/снимки)|`POST /api/missions`|запись|
+|4|Проверить статус своей группировки|`GET /api/constellations/{name}/report`|чтение|
+|5|Посмотреть все активные спутники в системе|`GET /api/satellites/active`|чтение|
+|6|Вывести спутник из эксплуатации|`DELETE /api/constellations/{name}/satellites/{sat}`|запись|
+|7|Проверить телеметрию перед завершением смены|`GET /api/telemetry`|чтение|
+
+Сценарий целиком реализован в [`load-tests/k6/scenario.js`](./load-tests/k6/scenario.js).
+
+\---
+
+## Профиль нагрузки
+
+|Параметр|Значение|
+|-|-|
+|Исполнитель (executor)|`ramping-vus` — разгон/удержание/спад|
+|Пиковое число виртуальных пользователей|30 по умолчанию (регулируется `VUS\\\_MAX`)|
+|Разгон|0 → пик за 20с|
+|**Удержание пика**|**60 секунд непрерывно**|
+|Спад|пик → половина за 15с, далее → 0 за 10с|
+|Suмма длительности прогона|\~105 секунд|
+
+Порог (threshold) считается пройденным, если:
+
+* 95-й перцентиль длительности запроса < 1.5с
+* Доля HTTP-ошибок < 1%
+* Доля успешно завершённых итераций сценария > 95%
+
+Число виртуальных пользователей по умолчанию (30) подобрано под комфортный
+локальный запуск с Postgres + Kafka в Docker на обычном ноутбуке. При более
+мощном железе увеличьте через переменную окружения `VUS\\\_MAX` (см. ниже),
+не редактируя сам скрипт.
+
+\---
+
+## Структура файлов теста
+
+```
+load-tests/
+├── k6/
+│   └── scenario.js          — сам сценарий нагрузочного теста
+├── allure-adapter/
+│   └── convert.js           — конвертер JSON-вывода k6 в формат allure-results
+├── run.sh                   — скрипт полного цикла: k6 → конвертация → Allure
+├── results/                 — (создаётся при запуске) сырые результаты k6, HTML-отчёт k6
+├── allure-results/          — (создаётся при запуске) промежуточные \\\*-result.json для Allure
+└── allure-report/           — (создаётся при запуске) финальный сгенерированный Allure-отчёт
+```
+
+`results/`, `allure-results/` и `allure-report/` — генерируемые артефакты,
+не хранятся в git (см. `.gitignore`).
+
+\---
+
+## Инструкция по запуску
+
+### 1\. Предварительные требования
+
+* Java 17 (или скорректируйте `sourceCompatibility` в `build.gradle.kts` под свою версию)
+* Docker Desktop (для Postgres и Kafka)
+* [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) — нагрузочный тест
+* Node.js 16+ — для конвертера результатов в Allure (использует только
+встроенный модуль `crypto`, внешних зависимостей не требует)
+* [Allure commandline](https://allurereport.org/docs/install/) — генерация отчёта
+(либо ставится глобально, либо вызывается через `npx` без установки —
+`run.sh` умеет и так, и так)
+
+### 2\. Запуск инфраструктуры (Postgres + Kafka)
 
 ```bash
-# В satellite-telemetry:
-cd satellite-telemetry && ./gradlew generateProto
-
-# В satellite-spring:
-cd satellite-spring && ./gradlew generateProto
+docker compose up postgres kafka
 ```
 
-Без этого шага проекты не скомпилируются — `TelemetryServiceGrpc`, `TelemetryRequest`, `TelemetryUpdate` не существуют до генерации.
+### 3\. Запуск приложения
 
-В Docker-сборке (`Dockerfile`) `bootJar` запускает `generateProto` автоматически (Gradle граф задач).
-
----
-
-## 🗂️ Новые файлы
-
-```
-satellite-telemetry/                    ← НОВЫЙ микросервис
-├── src/main/proto/telemetry.proto      ← gRPC контракт
-├── src/main/java/telemetry/
-│   ├── TelemetryApplication.java
-│   └── service/TelemetryGrpcService.java  ← @GrpcService, Server Streaming
-└── src/main/resources/application.yml     ← grpc.server.port: 9091
-
-satellite-spring/                       ← обновлён
-├── src/main/proto/telemetry.proto      ← COPY для генерации клиентского кода
-├── src/main/java/seminars/
-│   ├── telemetry/
-│   │   ├── TelemetryGrpcClient.java    ← @GrpcClient, подписка на поток
-│   │   └── TelemetryUpdateService.java ← @Transactional, сохранение в DB
-│   ├── controller/TelemetryController.java ← REST /api/telemetry
-│   └── domain/Satellite.java           ← + internalTemperature, externalTemperature
-├── src/main/resources/db/migration/
-│   └── V2__add_temperature_columns.sql ← Flyway: 2 nullable колонки
-└── build.gradle.kts                    ← + grpc-client-starter + protobuf plugin
-```
-
----
-
-## 📡 gRPC контракт (telemetry.proto)
-
-```proto
-service TelemetryService {
-  rpc StreamTelemetry(TelemetryRequest) returns (stream TelemetryUpdate);
-}
-```
-
-**Server Streaming** — клиент делает один запрос, сервер непрерывно шлёт обновления:
-
-```
-satellite-spring                   satellite-telemetry
-  │                                         │
-  │──── StreamTelemetry(request) ────────▶  │
-  │                                         │
-  │◀─── TelemetryUpdate (Связь-1) ────────  │  каждые 2 секунды
-  │◀─── TelemetryUpdate (ДЗЗ-1) ──────────  │  для каждого спутника
-  │◀─── TelemetryUpdate (ДЗЗ-2) ──────────  │
-  │           ...                            │
-```
-
----
-
-## 🌡 Эмулируемые данные
-
-| Поле | Диапазон | Смысл |
-|---|---|---|
-| `internalTemperature` | 15–35°C | Температура электроники (норма) |
-| `externalTemperature` | -150 до +120°C | Корпус: тень (-150°C) → Солнце (+120°C) |
-| `batteryLevel` | 0.3–1.0 | Заряд батареи |
-
----
-
-## 🔄 Поток данных
-
-```
-[telemetry-service] generateRandomTelemetry() → onNext(TelemetryUpdate)
-         ↓ gRPC stream (port 9091)
-[satellite-spring] TelemetryGrpcClient.onNext() → TelemetryUpdateService.applyTelemetryUpdate()
-         ↓ @Transactional
-[PostgreSQL] UPDATE satellites SET internal_temperature=?, external_temperature=? WHERE name=?
-         ↓ REST API
-[Client] GET /api/telemetry → [{"name":"Связь-1","internalTemperature":22.5,...}]
-```
-
----
-
-## ⚙️ Ключевые детали реализации
-
-### @ConditionalOnProperty на клиенте
-```java
-@ConditionalOnProperty(name = "telemetry.client.enabled", havingValue = "true")
-public class TelemetryGrpcClient { ... }
-```
-В `application-test.yaml`: `telemetry.client.enabled: false` — не пытается подключиться в тестах.
-
-### Retry при ошибке подключения
-```java
-@Override
-public void onError(Throwable t) {
-    retryExecutor.schedule(this::connect, 30, TimeUnit.SECONDS);
-}
-```
-Если `telemetry-service` недоступен — пробует снова каждые 30 секунд.
-
-### @Transactional в отдельном сервисе
-`onNext()` callback работает в gRPC-потоке (не Spring-managed). Вызов `@Transactional`-метода через Spring-прокси возможен только из другого `@Service`. Поэтому обновление БД вынесено в `TelemetryUpdateService`.
-
-### Отмена стрима при дисконнекте клиента
-```java
-serverObserver.setOnCancelHandler(() -> {
-    executor.shutdown();  // останавливаем ScheduledExecutorService
-});
-```
-
----
-
-## 🚀 Запуск
-
-### Все 4 сервиса в Docker
 ```bash
-docker compose up --build
+./gradlew generateProto   # обязательный первый шаг — генерирует Java-код из .proto
+./gradlew bootRun
 ```
 
-### Локально (последовательно):
+Успешный запуск оканчивается строкой в логе:
+
+```
+Started Main in ... seconds
+```
+
+и демонстрационным сценарием из `Main.java`: создаются группировки
+«Орбита-1»/«Орбита-2», активируются спутники, выполняются миссии. Проверить
+вручную: `http://localhost:8080/swagger-ui.html`.
+
+### 4\. Запуск нагрузочного теста
+
+Из корня репозитория:
+
 ```bash
-# 1. Телеметрия
-cd satellite-telemetry && ./gradlew generateProto bootRun
-
-# 2. Основной сервис (PostgreSQL должен быть запущен)
-cd satellite-spring && ./gradlew generateProto bootRun
-
-# 3. Планировщик
-cd satellite-scheduler && ./gradlew bootRun
+chmod +x load-tests/run.sh   # один раз, если права на исполнение не сохранились при клонировании
+./load-tests/run.sh
 ```
 
-### Проверка телеметрии через REST
+Скрипт сам:
+
+1. Проверяет, что `http://localhost:8080` отвечает
+2. Запускает k6 (разгон → 60с удержания пика → спад), пишет сырые результаты
+в `load-tests/results/raw-results.json` и нативный HTML-отчёт в
+`load-tests/results/summary.html`
+3. Конвертирует результаты в `load-tests/allure-results/`
+4. Генерирует Allure-отчёт в `load-tests/allure-report/`
+
+Настройка пикового числа пользователей и адреса сервиса:
+
 ```bash
-# После появления данных (~5 сек):
-curl http://localhost:8080/api/telemetry
+VUS\\\_MAX=50 BASE\\\_URL=http://localhost:8080 ./load-tests/run.sh
 ```
 
-### Проверка gRPC-стрима напрямую (grpcurl)
+### 5\. Просмотр отчёта
+
+**Allure:**
+
 ```bash
-grpcurl -plaintext -d '{"satellite_names":["Связь-1","ДЗЗ-1"]}' \
-  localhost:9091 telemetry.TelemetryService/StreamTelemetry
+allure open load-tests/allure-report
+# либо, если allure не установлен глобально:
+npx allure-commandline open load-tests/allure-report
 ```
 
----
+**Нативный HTML-отчёт k6** (быстрый способ без дополнительных шагов):
 
-## 🧪 Тесты
-
-| Файл | Что проверяет |
-|---|---|
-| `TelemetryUpdateServiceTest` | Mockito-тест: обновляет температуру / пропускает неизвестные спутники |
-| `TelemetryControllerTest` | MockMvc: GET /api/telemetry, 404 для несуществующего ID |
-
----
-
-## 📐 Docker Compose (4 сервиса)
-
-```
-postgres:9432       ← PostgreSQL с именованным томом
-telemetry-service:9091  ← gRPC Server Streaming
-server:8080         ← REST + JPA + gRPC Client (зависит от postgres + telemetry-service)
-mission-service:8081    ← REST планировщик (зависит от server)
+```bash
+open load-tests/results/summary.html   # macOS
+xdg-open load-tests/results/summary.html   # Linux
+start load-tests/results/summary.html   # Windows
 ```
 
----
+\---
 
-## 📚 Технологии
+## Как читать Allure-отчёт
 
-![gRPC](https://img.shields.io/badge/gRPC-Server%20Streaming-blue)
-![Protobuf](https://img.shields.io/badge/Protobuf-3.25-orange)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.2-brightgreen)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue)
-![Flyway](https://img.shields.io/badge/Flyway-V2-red)
+Каждая завершённая итерация сценария (один виртуальный пользователь,
+один законченный проход всех 7 шагов) отображается как отдельный тесткейс
+с именем `Сценарий оператора ЦУП — итерация VU{n}-Iter{m}-{timestamp}`.
+Внутри тесткейса — 7 шагов в порядке выполнения, каждый с HTTP-статусом и
+длительностью запроса. Тесткейс помечен `failed`, если хотя бы один шаг
+получил не тот HTTP-код, который ожидался (см. таблицу
+`EXPECTED\\\_STATUS` в [`load-tests/allure-adapter/convert.js`](./load-tests/allure-adapter/convert.js));
+конкретный упавший шаг и ожидаемый/полученный код видны в `statusDetails`
+тесткейса и в статусе самого шага.
+
+\---
+
+## Проект
+
+Основной код сервиса — в `src/main/java/seminars` (Spring Boot, REST API
+управления спутниковыми группировками, порт 8080). Смежные модули —
+`telemetry` (gRPC-сервис телеметрии, порт 9091) и `scheduler` (плановый
+запуск миссий по расписанию, без собственного REST API) — не участвуют
+в данном нагрузочном тесте: он покрывает только публичный REST API
+основного сервиса, который используется реальными клиентами.
+
+
+

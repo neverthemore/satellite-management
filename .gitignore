@@ -31,3 +31,8 @@ out/
 
 ### macOS ###
 .DS_Store
+
+load-tests/results/
+load-tests/allure-results/
+load-tests/allure-report/
+
