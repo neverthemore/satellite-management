@@ -1,4 +1,4 @@
-# 🛰️ Satellite Management System — Семинар 10 (gRPC Server Streaming)
+# 🛰️ Satellite Management System — Семинар 11 (gRPC Server Streaming)
 
 Добавлен третий микросервис `satellite-telemetry`, генерирующий телеметрию спутников через gRPC Server Streaming. Основной сервис подписывается на поток и сохраняет данные температуры в PostgreSQL.
 
