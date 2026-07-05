@@ -248,8 +248,8 @@ export default function () {
  */
 export function handleSummary(data) {
     return {
-        'results/summary.html': htmlReport(data),
-        'results/summary.json': JSON.stringify(data, null, 2),
+        'load-tests/results/summary.html': htmlReport(data),
+        'load-tests/results/summary.json': JSON.stringify(data, null, 2),
         stdout: textSummary(data, { indent: ' ', enableColors: true }),
     };
 }

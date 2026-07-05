@@ -1,0 +1,5 @@
+
+### Нагрузочное тестирование (k6 + Allure) ###
+load-tests/results/
+load-tests/allure-results/
+load-tests/allure-report/
